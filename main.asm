@@ -153,9 +153,9 @@ main:
 ; 210b = tilesets for bg 1 and bg 2
 ; (210c for bg 3 and bg 4)
 ; steps of $1000 -321-321... bg2 bg1
-	stz bg12_tiles ; $210b both at VRAM address $0000
+	stz bg12_tiles ; $210b BG 1 and 2 TILES at VRAM address $0000
 	lda #$03
-	sta bg34_tiles ; $210c bg3 at VRAM address $3000
+	sta bg34_tiles ; $210c BG3 TILES at VRAM address $3000
 	
 	; 2107 map address bg 1, steps of $400... -54321yx
 	; y/x = map size... 0,0 = 32x32 tiles

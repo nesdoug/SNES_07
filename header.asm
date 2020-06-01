@@ -3,7 +3,7 @@
 .segment "SNESHEADER"
 ;$00FFC0-$00FFFF
 
-.byte "EXAMPLE 2            " ;rom name 21 chars
+.byte "EXAMPLE 7            " ;rom name 21 chars
 .byte $30  ;LoROM FastROM
 .byte $00  ; extra chips in cartridge, 00: no extra RAM; 02: RAM with battery
 .byte $08  ; ROM size (2^# in kB)
