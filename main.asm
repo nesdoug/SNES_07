@@ -217,24 +217,7 @@ InfiniteLoop:
 	
 	
 	AXY16
-	lda pad1
-	and #KEY_LEFT
-	beq @not_left
-@left:
-	A8
-	dec ball_x
 	
-@not_left:
-	A16
-	lda pad1
-	and #KEY_RIGHT
-	beq @not_right
-@right:
-	A8
-	inc ball_x
-
-@not_right:
-	A16
 	lda pad1
 	and #KEY_UP
 	beq @not_up
@@ -531,7 +514,7 @@ print_score:
 ;we should be in v-blank
 	A8
 	lda #V_INC_32
-	sta vram_inc
+	sta vram_inc ;$2115
 
 ;print left score
 	A16
@@ -541,17 +524,17 @@ print_score:
 	jsr map_offset ; returns a16 = vram address offset
 	clc
 	adc #$7000 ;layer 3 map
-	sta vram_addr
+	sta vram_addr ;$2116
 	A8
 	lda points_L
 	clc
 	adc #$10
 	A16
 	and #$00ff ;blank the upper byte, = palette 0
-	sta vram_data
+	sta vram_data ;$2118
 	clc
 	adc #$0010
-	sta vram_data
+	sta vram_data ;$2118
 	
 ;print right score
 	A16
