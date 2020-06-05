@@ -3,6 +3,8 @@
 
 oam_buffer = OAM_BUFFER
 
+.segment "CODE"
+
 oam_spr:
 .a8
 .i16
