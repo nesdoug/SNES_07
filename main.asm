@@ -16,16 +16,18 @@ temp1: .res 2
 temp2: .res 2
 temp3: .res 2
 temp4: .res 2
+temp5: .res 2
+temp6: .res 2
+
+; for sprite code
 sprid: .res 1
-spr_x: .res 1 ; for sprite setting code
-spr_y: .res 1
-spr_c: .res 1
-spr_a: .res 1
+spr_x: .res 2 ; 9 bit
+spr_y: .res 1 
+spr_c: .res 1 ; tile #
+spr_a: .res 1 ; attributes
+spr_sz:	.res 1 ; sprite size, 0 or 2
 spr_h: .res 1 ; high 2 bits
 spr_x2:	.res 2 ; for meta sprite code
-spr_y2: .res 1
-spr_h2:	.res 1
-spr_pri: .res 1 ; priority
 
 ; for collision code
 obj1x: .res 1
@@ -438,7 +440,7 @@ draw_sprites:
 	
 ;left paddle
 	A8
-	stz spr_h ;9th bit of X
+	stz spr_x+1 ;9th bit of X
 	lda paddle1_x
 	sta spr_x
 	lda paddle1_y
@@ -450,7 +452,7 @@ draw_sprites:
 	
 ;right paddle
 	A8
-	stz spr_h
+	stz spr_x+1
 	lda paddle2_x
 	sta spr_x
 	lda paddle2_y
@@ -465,11 +467,11 @@ draw_sprites:
 	beq @skip_ball
 ;ball
 
-; spr_x - x
+; spr_x - x (9 bit)
 ; spr_y - y
 ; spr_c - tile #
 ; spr_a - attributes, flip, palette, priority
-; spr_h - 0-3, optional, keep zero if not needed
+; spr_sz = sprite size, 0 or 2
 	lda ball_x
 	sta spr_x
 	lda ball_y
@@ -478,7 +480,7 @@ draw_sprites:
 	sta spr_c
 	lda #SPR_PAL_5|SPR_PRIOR_2
 	sta spr_a
-	stz spr_h ;8x8 
+	stz spr_sz ;8x8 
 	jsr oam_spr
 	
 @skip_ball:

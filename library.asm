@@ -10,33 +10,33 @@ oam_spr:
 .i16
 ; to put one sprite on screen
 ; copy all the sprite values to these 8 bit variables
-; spr_x - x
+; spr_x - x (9 bit)
 ; spr_y - y
 ; spr_c - tile #
 ; spr_a - attributes, flip, palette, priority
-; spr_h - 0-3, optional, keep zero if not needed
-;  bit 0 = X high bit (neg)
-;  bit 1 = sprite size
+; spr_sz = sprite size, 0 or 2
+
 	php
-	sep #$20
-	lda sprid ; 0-127
-	lsr a
-	lsr a
-	sta temp1 ; 0-31
+	rep #$30 ;axy16
 	lda sprid
-	rep #$30
 	and #$007f
+	tax
 	asl a
 	asl a ; 0-511
 	tay
-	sep #$20
-	lda spr_x
+	
+	txa
+	sep #$20 ;a8
+	lsr a
+	lsr a ; 0-31
+	tax
+	lda spr_x ;x low byte
 	sta a:oam_buffer, y
-	lda spr_y
+	lda spr_y ;y
 	sta a:oam_buffer+1, y
-	lda spr_c
+	lda spr_c ;tile
 	sta a:oam_buffer+2, y
-	lda spr_a
+	lda spr_a ;attribute
 	sta a:oam_buffer+3, y
 	
 ; handle the high table
@@ -44,72 +44,55 @@ oam_spr:
 ; this is slow, so if this is zero, skip it, it was
 ; zeroed in oam_clear
 
-	lda spr_h ; if zero, skip
+	lda spr_x+1 ;9th x bit
+	and #1 ;we only need 1 bit
+	ora spr_sz ;size
 	beq @end
-	and #3 ; to be safe, we only need 2 bits
 	sta spr_h
-	
-	lda #0
-	xba ; clear that H byte, a is 8 bit
-	lda temp1 ; sprid >> 2
-	tay ; should be 0-31
 	
 	lda sprid
 	and #3
 	beq @zero
-	cmp #1
+	dec a
 	beq @one
-	cmp #2
+	dec a
 	beq @two
 	bne @three
+	
 @zero:
-	lda a:oam_buffer+$200, y
-	and #$fc
-	sta temp1
 	lda spr_h
-	ora temp1
-	sta a:oam_buffer+$200, y
+	sta a:oam_buffer+$200, x
 	bra @end
 	
 @one:
-	lda a:oam_buffer+$200, y
-	and #$f3
-	sta temp1
 	lda spr_h
 	asl a
 	asl a
-	ora temp1
-	sta oam_buffer+$200, y
+	ora a:oam_buffer+$200, x
+	sta a:oam_buffer+$200, x
 	bra @end
 	
 @two:
-	lda a:oam_buffer+$200, y
-	and #$cf
-	sta temp1
 	lda spr_h
 	asl a
 	asl a
 	asl a
 	asl a
-	ora temp1
-	sta a:oam_buffer+$200, y	
+	ora a:oam_buffer+$200, x
+	sta a:oam_buffer+$200, x
 	bra @end
 
 @three:
-	lda a:oam_buffer+$200, y
-	and #$3f
-	sta temp1
 	lda spr_h
 	lsr a ; 0000 0001 c
 	ror a ; 1000 0000 c
 	ror a ; 1100 0000 0
-	ora temp1
-	sta a:oam_buffer+$200, y	
+	ora a:oam_buffer+$200, x
+	sta a:oam_buffer+$200, x	
 	
 @end:	
 	lda sprid
-	clc
-	adc #1
+	inc a
 	and #$7f ; keep it 0-127
 	sta sprid
 	plp
@@ -121,120 +104,151 @@ oam_meta_spr:
 .i16
 ; to put multiple sprites on screen
 ; copy all the sprite values to these 8 bit variables
-; spr_x - x
+; spr_x - x 9 bit
 ; spr_y - y
-; spr_h - 0-1, optional, keep zero if not needed
-;  bit 0 = X high bit (neg)
-; (these values are trashed... rewrite them each use.)
 
 ; A16 = metasprite data address
 ; X = bank of metasprite data
+
 ; format (5 bytes per sprite)
 ; relative x, relative y, tile #, attributes, size
 ; end in 128
+
 	php
-	rep #$30
-	; temp1 is used by oam_spr, don't use it here
-	sta temp2
-	stx temp3
-	sep #$20
-	lda spr_x
+	rep #$30 ;axy16
+	sta temp1 ;address of metasprite
+	stx temp2
+	
+	ldy #$0000
+	sty temp3 ;clear these
+	sty temp4 ;high table index
+	sty temp5
+	sty temp6
+	
+	lda spr_x ;16 bits
+	and #$01ff ;9 bits
 	sta spr_x2
-	lda spr_y
-	sta spr_y2
-	lda spr_h
-	and #$01 ; high x 0-1
-	beq @zero
-	lda #$ff ; high x = -1
-@zero:	
-	sta spr_x2+1
-	lda spr_h
-	and #$02
-	sta spr_h2 ; size
+	
+	sep #$20 ;a8
+	lda sprid ;align sprid to multiple of 4
+	clc
+	adc #3
+	and #$7c
+	sta sprid
+	lsr a
+	lsr a ; 0-31
+	sta temp4 ;high table index
+	
+	lda sprid
+	rep #$20 ;a16
+	and #$007f
+	asl a
+	asl a ; 0-511
+	tax ;x = low table index
+
+	lda #3
+	sta temp3 ;loop counter
 	
 @loop:
-	sep #$30 ; axy8
-	lda [temp2]
+	sep #$20 ; a8
+	lda [temp1], y
 	cmp #128 ; end of data
 	beq @done
-	jsr meta_sub
-.a8	
-.i8
-	tyx
-	beq @skip
-	
-	jsr oam_spr ; call the 1 sprite subroutine
-	
-@skip:
-	rep #$30
-	lda #$0005
-	clc
-	adc temp2
-	sta temp2
-	bra @loop
-	
-@done:	
-.a8
-.i8
-	plp
-	rts
-	
-meta_sub:
-.a8
-.i8
-	
-; a = rel x
-	rep #$20 ; a16
-	and #$00ff ; clear that upper byte...
-; need to extend the sign for a negative rel X	
-	cmp #$0080
+;first byte is rel x (signed)	
+	rep #$20 ;a16
+	and #$00ff
+	cmp #$0080 ;is negative?
 	bcc @pos_x
 @neg_x:
 	ora #$ff00 ; extend the sign
 @pos_x:
 	clc
-	adc spr_x2 ; either 0000 or ff00
-	sep #$20 ; a8
-	sta spr_x ; 8 bit low X
-	xba ; are we in range?
-	cmp #$ff
-	bne @check_x
-; set high x	
-	lda spr_h2
-	ora #$01
-	sta spr_h
-	bra @x_done
-	
-@check_x:
-	cmp #$01 ; too far right
-	bcs @skip
-; clear high x 	
-	lda spr_h2
-	sta spr_h
-	
-@x_done:
-.a8
-	ldy #1 ; rel y
-	lda [temp2], y
+	adc spr_x2
+;the high byte holds the X 9th bit
+	sep #$20 ;a8
+	sta a:oam_buffer, x
+;keep that high byte 9th x
+	iny
+	lda [temp1], y ;y byte
 	clc
-	adc spr_y2
-	sta spr_y
-
-	iny ; y=2 char
-	lda [temp2], y
-	sta spr_c
-	iny ; y=3 attributes
-	lda [temp2], y
-	sta spr_a
-	iny ; y=4 size
-	lda [temp2], y
-	ora spr_h
+	adc spr_y
+;todo, maybe skip wraparound ?	
+	sta a:oam_buffer+1, x
+	iny
+	lda [temp1], y ;tile
+	sta a:oam_buffer+2, x
+	iny
+	lda [temp1], y ;attributes
+	sta a:oam_buffer+3, x
+	iny
+	lda [temp1], y ;size
+	iny
 	sta spr_h
-	rts
+	xba ;that 9th x bit
+	and #1
+	ora spr_h
+	phx ;save for later
+	ldx temp3
+	sta temp5, x
+	plx
 	
-@skip:
-	ldy #0 ; signal to skip the sprite routine
-	rts	
+	inx
+	inx
+	inx
+	inx
+	inc sprid
+	
+	dec temp3 ;loop counter
+	bpl @loop
+; we have 4, push them to the high table now
+
+	phx ;save for later
+	ldx temp4
+	lda temp5
+	asl a
+	asl a
+	ora temp5+1
+	asl a
+	asl a
+	ora temp5+2
+	asl a
+	asl a
+	ora temp5+3
+	sta a:oam_buffer+$200, x
+	inc temp4
+
+;fix bug, clear them again	
+	ldx #$0000
+	stx temp5
+	stx temp6
+	
+	plx
+	lda #3
+	sta temp3 ;loop counter
+	bra @loop
+	
+@done:
+.a8
+.i16
+	inc temp3
+	beq @exit
+;handle one more high table byte.
+	ldx temp4
+	lda temp5
+	asl a
+	asl a
+	ora temp5+1
+	asl a
+	asl a
+	ora temp5+2
+	asl a
+	asl a
+	ora temp5+3
+	sta a:oam_buffer+$200, x
+	
+@exit:	
+	plp
+	rts
 	
 	
 oam_clear:
@@ -342,7 +356,7 @@ check_collision:
 ;obj2y: .res 1
 ;obj2h: .res 1
 ;returns collision = 1 or 0
-
+	php
 	A8
 ;first check if obj1 R (obj1 x + width) < obj2 L
 
@@ -379,10 +393,12 @@ check_collision:
 @yes:
 	lda #1
 	sta collision
+	plp
 	rts
 	
 @no:
 	stz collision
+	plp
 	rts
 
 
