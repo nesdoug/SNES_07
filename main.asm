@@ -4,79 +4,8 @@
 .smart
 
 
-BALL_SIZE = 7
-PADDLE_W = 7
-PADDLE_H = 47
-
-
-
-.segment "ZEROPAGE"
-
-temp1: .res 2
-temp2: .res 2
-temp3: .res 2
-temp4: .res 2
-temp5: .res 2
-temp6: .res 2
-
-; for sprite code
-sprid: .res 1
-spr_x: .res 2 ; 9 bit
-spr_y: .res 1 
-spr_c: .res 1 ; tile #
-spr_a: .res 1 ; attributes
-spr_sz:	.res 1 ; sprite size, 0 or 2
-spr_h: .res 1 ; high 2 bits
-spr_x2:	.res 2 ; for meta sprite code
-
-; for collision code
-obj1x: .res 1
-obj1w: .res 1
-obj1y: .res 1
-obj1h: .res 1
-obj2x: .res 1
-obj2w: .res 1
-obj2y: .res 1
-obj2h: .res 1
-collision: .res 1
-
-pad1: .res 2
-pad1_new: .res 2
-pad2: .res 2
-pad2_new: .res 2
-in_nmi: .res 2
-
-ball_active: .res 1
-ball_x: .res 1
-ball_y: .res 1
-ball_x_speed: .res 1
-ball_y_speed: .res 1
-
-paddle1_x: .res 1
-paddle1_y: .res 1
-
-paddle2_x: .res 1
-paddle2_y: .res 1
-
-points_L: .res 1
-points_R: .res 1
-
-game_pause: .res 1
-frame_count: .res 1
-
-
-
-
-.segment "BSS"
-
-PAL_BUFFER: .res 512
-
-OAM_BUFFER: .res 512 ;low table
-OAM_BUFFER2: .res 32 ;high table
-
-
-
-.include "defines.asm"
+.include "regs.asm"
+.include "variables.asm"
 .include "macros.asm"
 .include "init.asm"
 .include "library.asm"
@@ -85,43 +14,28 @@ OAM_BUFFER2: .res 32 ;high table
 
 
 
-
 .segment "CODE"
 
 ; enters here in forced blank
-main:
-.a16 ; just a standardized setting from init code
+Main:
+.a16 ; the setting from init code
 .i16
 	phk
 	plb
-	jsr oam_clear
 	
 	
 ; COPY PALETTES to PAL_BUFFER	
 ;	BLOCK_MOVE  length, src_addr, dst_addr
 	BLOCK_MOVE  512, BG_Palette, PAL_BUFFER
-	
+	A8 ;block move will put AXY16. Undo that.
 	
 ; DMA from PAL_BUFFER to CGRAM
-	A8
-	stz pal_addr ; $2121 cg address = zero
-
-	stz $4300 ; transfer mode 0 = 1 register write once
-	lda #$22  ; $2122
-	sta $4301 ; destination, pal data
-	ldx #.loword(PAL_BUFFER)
-	stx $4302 ; source
-	lda #^PAL_BUFFER
-	sta $4304 ; bank
-	ldx #512 ; full palette size
-	stx $4305 ; length
-	lda #1
-	sta $420b ; start dma, channel 0
+	jsr DMA_Palette ; in init.asm	
 	
 	
 ; DMA from Tiles to VRAM	
 	lda #V_INC_1 ; the value $80
-	sta vram_inc  ; $2115 = set the increment mode +1
+	sta VMAIN  ; $2115 = set the increment mode +1
 
 	DMA_VRAM  (End_BG_Tiles - BG_Tiles), BG_Tiles, $0000
 	
@@ -150,26 +64,26 @@ main:
 	
 ; a is still 8 bit.
 	lda #1|BG3_TOP ; mode 1, tilesize 8x8 all
-	sta bg_size_mode ; $2105
+	sta BGMODE ; $2105
 	
 ; 210b = tilesets for bg 1 and bg 2
 ; (210c for bg 3 and bg 4)
 ; steps of $1000 -321-321... bg2 bg1
-	stz bg12_tiles ; $210b BG 1 and 2 TILES at VRAM address $0000
+	stz BG12NBA ; $210b BG 1 and 2 TILES at VRAM address $0000
 	lda #$03
-	sta bg34_tiles ; $210c BG3 TILES at VRAM address $3000
+	sta BG34NBA ; $210c BG3 TILES at VRAM address $3000
 	
 	; 2107 map address bg 1, steps of $400... -54321yx
 	; y/x = map size... 0,0 = 32x32 tiles
 	; $6000 / $100 = $60
 	lda #$60 ; bg1 map at VRAM address $6000
-	sta tilemap1 ; $2107
+	sta BG1SC ; $2107
 	
 	lda #$68 ; bg2 map at VRAM address $6800
-	sta tilemap2 ; $2108
+	sta BG2SC ; $2108
 	
 	lda #$70 ; bg3 map at VRAM address $7000
-	sta tilemap3 ; $2109	
+	sta BG3SC ; $2109	
 	
 	
 ;$2101 sssnn-bb
@@ -178,18 +92,18 @@ main:
 ;-bb = where are the sprite tiles, in steps of $2000
 ;that upper bit is useless, as usual, so I marked it with a dash -
 	lda #2 ;sprite tiles at $4000
-	sta spr_addr_size ;= $2101
+	sta OBSEL ;= $2101
 
 ;allow everything on the main screen	
 	lda #ALL_ON_SCREEN ; $1f
-	sta main_screen ; $212c
+	sta TM ; $212c
 	
 	;turn on NMI interrupts and auto-controller reads
 	lda #NMI_ON|AUTO_JOY_ON
-	sta $4200
+	sta NMITIMEN ;$4200
 	
 	lda #FULL_BRIGHT ; $0f = turn the screen on, full brighness
-	sta fb_bright ; $2100
+	sta INIDISP ; $2100
 
 ;set initial values
 	stz ball_active
@@ -207,14 +121,17 @@ main:
 	
 	
 	
-InfiniteLoop:	
-;game loop a8 xy16
-	jsr wait_nmi ;wait for the beginning of v-blank
-	jsr dma_oam  ;copy the OAM_BUFFER to the OAM
-	jsr print_score
-	jsr pad_poll ;read controllers
-	jsr oam_clear
+Infinite_Loop:	
+;game loop
 	A8
+	XY16
+	jsr Wait_NMI ;wait for the beginning of v-blank
+	jsr DMA_OAM  ;copy the OAM_BUFFER to the OAM
+	jsr Print_Score
+	jsr Pad_Poll ;read controllers
+	jsr Clear_OAM
+;	A8
+	
 	inc frame_count
 	
 	
@@ -266,12 +183,12 @@ InfiniteLoop:
 	lda points_L
 	cmp #9
 	bcc @ok
-	jsr reset_score
+	jsr Reset_Score
 @ok:
 	lda points_R
 	cmp #9
 	bcc @ok2
-	jsr reset_score
+	jsr Reset_Score
 @ok2:
 	
 ;start a new ball	
@@ -361,7 +278,7 @@ InfiniteLoop:
 	lda #BALL_SIZE
 	sta obj2h
 	
-	jsr check_collision
+	jsr Check_Collision
 	A8
 	lda collision ;1 or 0
 	beq @no_collision
@@ -387,7 +304,7 @@ InfiniteLoop:
 	sta obj1h
 ;	skip ball, still loaded
 
-	jsr check_collision
+	jsr Check_Collision
 	A8
 	lda collision ;1 or 0
 	beq @past_collisions
@@ -424,22 +341,24 @@ InfiniteLoop:
 
 ball_not_active:
 
-	jsr draw_sprites
-	jmp InfiniteLoop
+	jsr Draw_Sprites
+	jmp Infinite_Loop
 	
 	
 	
-reset_score:
+Reset_Score:
 	stz points_L
 	stz points_R
 	rts
 	
 	
-draw_sprites:
+Draw_Sprites:
 	php
 	
 ;left paddle
 	A8
+	stz sprid
+	
 	stz spr_x+1 ;9th bit of X
 	lda paddle1_x
 	sta spr_x
@@ -448,8 +367,8 @@ draw_sprites:
 	A16
 	lda #.loword(Meta_00) ;left paddle
 	ldx #^Meta_00
-	jsr oam_meta_spr
-	
+	jsr OAM_Meta_Spr
+		
 ;right paddle
 	A8
 	stz spr_x+1
@@ -460,7 +379,7 @@ draw_sprites:
 	A16
 	lda #.loword(Meta_01) ;right paddle
 	ldx #^Meta_01
-	jsr oam_meta_spr
+	jsr OAM_Meta_Spr
 	
 	A8
 	lda ball_active
@@ -481,7 +400,7 @@ draw_sprites:
 	lda #SPR_PAL_5|SPR_PRIOR_2
 	sta spr_a
 	stz spr_sz ;8x8 
-	jsr oam_spr
+	jsr OAM_Spr
 	
 @skip_ball:
 	plp
@@ -489,81 +408,63 @@ draw_sprites:
 	
 	
 	
-clear_sp_buffer:
-.a8
-.i16
-	php
-	A8
-	XY16
-	lda #224 ;put all y values just below the screen
-	ldx #$0000
-	ldy #128 ;number of sprites
-@loop:
-	sta OAM_BUFFER+1, x
-	inx
-	inx
-	inx
-	inx ;add 4 to x
-	dey
-	bne @loop
-	plp
-	rts
+
 	
 	
 	
-print_score:
+Print_Score:
 	php
 ;we should be in v-blank
 	A8
-	lda #V_INC_32
-	sta vram_inc ;$2115
+	lda #V_INC_32 ;downward increment
+	sta VMAIN ;$2115
 
 ;print left score
 	A16
 	XY8
 	ldx #12
 	ldy #1
-	jsr map_offset ; returns a16 = vram address offset
+	jsr Map_Offset ; returns a16 = vram address offset
 	clc
 	adc #$7000 ;layer 3 map
-	sta vram_addr ;$2116
+	sta VMADDL ;$2116
 	A8
 	lda points_L
 	clc
 	adc #$10
 	A16
 	and #$00ff ;blank the upper byte, = palette 0
-	sta vram_data ;$2118
+	sta VMDATAL ;$2118
 	clc
 	adc #$0010
-	sta vram_data ;$2118
+	sta VMDATAL ;$2118
 	
 ;print right score
 	A16
 	XY8
 	ldx #19
 	ldy #1
-	jsr map_offset ; returns a16 = vram address offset
+	jsr Map_Offset ; returns a16 = vram address offset
 	clc
 	adc #$7000 ;layer 3 map
-	sta vram_addr
+	sta VMADDL ;$2116
 	A8
 	lda points_R
 	clc
 	adc #$10
 	A16
 	and #$00ff ;blank the upper byte, = palette 0
-	sta vram_data
+	sta VMDATAL
 	clc
 	adc #$0010
-	sta vram_data
+	sta VMDATAL
 	
 	plp
 	rts
 	
 	
 	
-wait_nmi:
+Wait_NMI:
 .a8
 .i16
 ;should work fine regardless of size of A
@@ -577,31 +478,8 @@ wait_nmi:
 	rts
 
 	
-dma_oam:
-.a8
-.i16
-	php
-	A8
-	XY16
-	ldx #$0000
-	stx oam_addr_L ;$2102 (and 2103)
 	
-	stz $4300 ; transfer mode 0 = 1 register write once
-	lda #4 ;$2104 oam data
-	sta $4301 ; destination, oam data
-	ldx #.loword(OAM_BUFFER)
-	stx $4302 ; source
-	lda #^OAM_BUFFER
-	sta $4304 ; bank
-	ldx #544
-	stx $4305 ; length
-	lda #1
-	sta $420b ; start dma, channel 0
-	plp
-	rts
-	
-	
-pad_poll:
+Pad_Poll:
 .a8
 .i16
 ; reads both controllers to pad1, pad1_new, pad2, pad2_new
@@ -647,9 +525,10 @@ pad_poll:
 .segment "RODATA1"
 
 BG_Palette:
+; 256 bytes
 .incbin "Background/Background.pal"
-
 Spr_Palette:
+; 256 bytes
 .incbin "Sprites/sprites.pal"
 
 BG_Tiles:
